@@ -1,36 +1,55 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+﻿# 3D Card Game (Next.js + three.js + Supabase)
 
-## Getting Started
+**Status:** Day 1 scaffold (Next.js + Tailwind + tests + CI).  
+**Stack:** Next.js (App Router), TypeScript, Tailwind CSS, three.js, GSAP, Vitest (+ Testing Library), GitHub Actions.
 
-First, run the development server:
+## Requirements
+- Node **22.x** (LTS) – see \.nvmrc\
+- npm, Git
 
-```bash
+## Quickstart (dev)
+\\\ash
+npm ci
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+# http://localhost:3000
+\\\
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Scripts
+- \
+pm run dev\ – start dev server
+- \
+pm run build\ – production build
+- \
+pm start\ – run production server
+- \
+pm run lint\ – ESLint
+- \
+pm run typecheck\ – TypeScript \--noEmit\
+- \
+pm run test\ – Vitest (unit)
+- \
+pm run test:watch\, \
+pm run test:coverage\
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## CI/CD
+GitHub Actions runs \lint\, \	ypecheck\, \	est\, \uild\ on the \main\ branch.  
+Workflow file: \.github/workflows/ci.yml\.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Environment
+Use \.env.local\ (not committed). A template is provided in \.env.example\.  
+> \SUPABASE_SERVICE_ROLE\ is **server-only** (API routes), never exposed to the client.
 
-## Learn More
+## Project Structure (short)
+\\\
+/ (root)
+  app/                 # Next.js app
+  db/                  # migrations, seeds, SQL tests
+  e2e/                 # Playwright (E2E) – later
+  public/models/       # 3D models (GLB)
+  scripts/             # internal tooling
+  docs/                # documentation
+  .github/workflows/   # CI
+\\\
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Contributing
+See [CONTRIBUTING.md](./CONTRIBUTING.md). Trunk-based, small PRs, green CI before merge.
