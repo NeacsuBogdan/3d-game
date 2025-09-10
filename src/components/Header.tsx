@@ -50,10 +50,14 @@ export default function Header() {
     <header className="w-full border-b border-neutral-800">
       <div className="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between">
         <Link href="/" className="font-semibold">3D Card Game</Link>
+
         <nav className="flex items-center gap-2">
+          <LinkItem href="/room/create">Create</LinkItem>
+          <LinkItem href="/join">Join</LinkItem>
           <LinkItem href="/debug/3d">Debug 3D</LinkItem>
           <LinkItem href="/debug/supabase">Supabase</LinkItem>
         </nav>
+
         <div className="flex items-center gap-2">
           {loading ? (
             <span className="text-sm text-neutral-500">…</span>

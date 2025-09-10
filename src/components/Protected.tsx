@@ -3,12 +3,11 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase/client';
-import type { User } from '@supabase/supabase-js';
 
 export default function Protected({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [checking, setChecking] = useState(true);
+  const [ok, setOk] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -16,16 +15,15 @@ export default function Protected({ children }: { children: React.ReactNode }) {
       const { data } = await supabase.auth.getUser();
       if (!active) return;
       if (!data.user) {
-        router.replace('/login');
+        router.replace('/login'); // redirect instead of 404
       } else {
-        setUser(data.user);
+        setOk(true);
       }
-      setLoading(false);
+      setChecking(false);
     })();
     return () => { active = false; };
   }, [router]);
 
-  if (loading) return <div className="p-6">Loading…</div>;
-  if (!user) return <div className="p-6">Redirecting…</div>;
-  return <>{children}</>;
+  if (checking) return null;
+  return ok ? <>{children}</> : null;
 }
