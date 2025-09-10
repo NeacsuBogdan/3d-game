@@ -1,10 +1,16 @@
 ﻿# 3D Card Game (Next.js + three.js + Supabase)
 
-**Status:** Day 1 scaffold (Next.js + Tailwind + tests + CI).  
-**Stack:** Next.js (App Router), TypeScript, Tailwind CSS, three.js, GSAP, Vitest (+ Testing Library), GitHub Actions.
+**Status:** Day 2 complete (CI green)
+
+## Stack
+- App: Next.js (App Router), TypeScript, Tailwind CSS
+- 3D: three.js, GSAP
+- Backend: Supabase (Auth, Postgres, Realtime, RLS)
+- Tests: Vitest (+ Testing Library)
+- CI: GitHub Actions
 
 ## Requirements
-- Node **22.x** (LTS) – see \.nvmrc\
+- Node **22.x** (LTS) — see \.nvmrc\
 - npm, Git
 
 ## Quickstart (dev)
@@ -16,40 +22,43 @@ npm run dev
 
 ## Scripts
 - \
-pm run dev\ – start dev server
+pm run dev\ — start dev server
 - \
-pm run build\ – production build
+pm run build\ — production build
 - \
-pm start\ – run production server
+pm run start\ — run production server
 - \
-pm run lint\ – ESLint
+pm run lint\ — ESLint
 - \
-pm run typecheck\ – TypeScript \--noEmit\
+pm run typecheck\ — TypeScript (noEmit)
 - \
-pm run test\ – Vitest (unit)
+pm run test\ — Vitest (unit)
 - \
 pm run test:watch\, \
 pm run test:coverage\
 
 ## CI/CD
-GitHub Actions runs \lint\, \	ypecheck\, \	est\, \uild\ on the \main\ branch.  
+GitHub Actions runs **lint**, **typecheck**, **test**, **build** on the \main\ branch.  
 Workflow file: \.github/workflows/ci.yml\.
 
 ## Environment
 Use \.env.local\ (not committed). A template is provided in \.env.example\.  
-> \SUPABASE_SERVICE_ROLE\ is **server-only** (API routes), never exposed to the client.
+> \SUPABASE_SERVICE_ROLE\ is **server-only** (route handlers / edge functions), never exposed to the client.
 
 ## Project Structure (short)
 \\\
-/ (root)
+/
   app/                 # Next.js app
-  db/                  # migrations, seeds, SQL tests
-  e2e/                 # Playwright (E2E) – later
-  public/models/       # 3D models (GLB)
-  scripts/             # internal tooling
+  db/                  # migrations, seeds
+  public/models/       # 3D models (FBX)
+  src/                 # source code
   docs/                # documentation
   .github/workflows/   # CI
 \\\
 
+## Project Journal
+- Day 1: docs/day-1.md
+- Day 2: docs/day-2.md
+
 ## Contributing
-See [CONTRIBUTING.md](./CONTRIBUTING.md). Trunk-based, small PRs, green CI before merge.
+See [CONTRIBUTING.md](./CONTRIBUTING.md). Small PRs, green CI before merge.
