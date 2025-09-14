@@ -13,6 +13,15 @@ type Props = {
 
 const cap = (s: string) => s.slice(0, 1).toUpperCase() + s.slice(1).toLowerCase();
 
+// === TUNABLES (poți regla valorile după gust) ===
+const CHARACTER_TARGET_HEIGHT = 3; // înainte: 1.72 → face personajele mai mari
+const CAMERA_FOV = 42;                // înainte: 45  → puțin mai “zoom”
+const CAMERA_BASE_Y = 1.9;
+const CAMERA_BASE_Z = 5.8;            // înainte: 6.8 → camera mai aproape
+const ORBIT_X_AMPL = 0.65;            // înainte: 0.85 (mișcare laterală mai mică)
+const ORBIT_Z_AMPL = 0.30;            // înainte: 0.35 (mișcare pe adâncime mai mică)
+const LINEUP_GAP = 1.7;               // înainte: 1.5  → mai mult spațiu între persoane când sunt mai mari
+
 // --- helpers: căi, bbox, normalizare ---
 
 function measureWorldBounds(root: THREE.Object3D) {
@@ -118,8 +127,10 @@ export default function ShowroomStage3D({ members, currentUid, onClickMember }: 
 
     const w = container.clientWidth || 1024;
     const h = container.clientHeight || 600;
-    const camera = new THREE.PerspectiveCamera(45, w / h, 0.1, 200);
-    camera.position.set(0, 1.9, 6.8);
+    // const camera = new THREE.PerspectiveCamera(45, w / h, 0.1, 200);
+    const camera = new THREE.PerspectiveCamera(CAMERA_FOV, w / h, 0.1, 200);
+    // camera.position.set(0, 1.9, 6.8);
+    camera.position.set(0, CAMERA_BASE_Y, CAMERA_BASE_Z);
     camera.lookAt(0, 1.7, 0);
 
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -194,8 +205,8 @@ export default function ShowroomStage3D({ members, currentUid, onClickMember }: 
       const cam = cameraRef.current;
       if (cam) {
         const t = performance.now() * 0.00008;
-        cam.position.x = Math.sin(t) * 0.85;
-        cam.position.z = 6.8 + Math.cos(t) * 0.35;
+        cam.position.x = Math.sin(t) * ORBIT_X_AMPL;
+        cam.position.z = CAMERA_BASE_Z + Math.cos(t) * ORBIT_Z_AMPL;
         cam.lookAt(0, 1.7, 0);
       }
 
@@ -225,20 +236,27 @@ export default function ShowroomStage3D({ members, currentUid, onClickMember }: 
     animate();
     renderNow();
 
-    // cleanup
+    // ---- capture pentru cleanup (REZOLVĂ eslint react-hooks/exhaustive-deps) ----
+    const mixers = mixersRef.current;
+    const nodes = nodesRef.current;
+    const labels = labelsRef.current;
+    // ---------------------------------------------------------------------------
+
     return () => {
       cancelAnimationFrame(raf);
       ro.disconnect();
       window.removeEventListener("resize", onResize);
       renderer.domElement.removeEventListener("pointerdown", onPointer);
 
-      mixersRef.current.forEach((m) => m.stopAllAction());
-      mixersRef.current.clear();
+      // folosim capturile locale, nu .current (evită warningurile)
+      mixers.forEach((m) => m.stopAllAction());
+      mixers.clear();
 
-      nodesRef.current.forEach((n) => scene.remove(n));
-      nodesRef.current.clear();
-      labelsRef.current.forEach((el) => el.remove());
-      labelsRef.current.clear();
+      nodes.forEach((n) => scene.remove(n));
+      nodes.clear();
+
+      labels.forEach((el) => el.remove());
+      labels.clear();
 
       renderer.dispose();
       (scene as unknown as { dispose?: () => void }).dispose?.();
@@ -280,7 +298,7 @@ export default function ShowroomStage3D({ members, currentUid, onClickMember }: 
     const meFirst = meIndex >= 0 ? [order[meIndex], ...order.filter((_, i) => i !== meIndex)] : order;
 
     const positions: Array<{ uid: string; x: number; z: number; scale: number }> = [];
-    const gap = 1.5;
+    const gap = LINEUP_GAP;
     meFirst.forEach((m, i) => {
       if (i === 0) positions.push({ uid: m.uid, x: 0, z: 0, scale: 1.08 });
       else {
@@ -403,7 +421,7 @@ export default function ShowroomStage3D({ members, currentUid, onClickMember }: 
         newRoot.add(clone);
 
         // normalizează înălțimea și așează pe podea
-        const { height, radius } = fitToHeightAndFloor(clone, 1.72);
+        const { height, radius } = fitToHeightAndFloor(clone, CHARACTER_TARGET_HEIGHT);
 
         // actualizează label anchor exact deasupra capului
         const anchor = root.getObjectByName("label-anchor");

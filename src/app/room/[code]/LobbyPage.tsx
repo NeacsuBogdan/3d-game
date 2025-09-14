@@ -16,11 +16,14 @@ import type { StageMember } from "./_shared/types";
 
 export default function LobbyPage({ code }: { code: string }) {
   const { room, currentUid, loading, error } = useRoom(code);
-  const { members, updateCharacterGuarded, toggleReady } = useMembers(room?.id ?? null);
-  const { characters } = useCharacters(); // pentru auto-assign
-  usePresence(room?.id ?? null, currentUid); // ținem presence în sync (fără UI)
+  const { members, refresh, updateCharacterGuarded, toggleReady } = useMembers(room?.id ?? null);
+  const { characters } = useCharacters();
+  const [hostNotice, setHostNotice] = useState<string | null>(null);
+  const prevHostUidRef = useRef<string | null>(null);
+  const initHostRef = useRef(false);
+  // 👉 legăm presence de refresh-ul membrilor (host prinde imediat intrările)
+  usePresence(room?.id ?? null, currentUid, refresh);
 
-  // Swap channel (click pe coleg în scenă)
   const swap = useSwapChannel({
     roomId: room?.id ?? null,
     currentUid,
@@ -28,50 +31,38 @@ export default function LobbyPage({ code }: { code: string }) {
     updateCharacterGuarded,
   });
 
-  // handler stabil pentru click în scenă
   const handleClickMember = useCallback(
     (uid: string) => swap.requestSwap(uid),
     [swap]
   );
 
-  // Ready state
   const [busyReady, setBusyReady] = useState(false);
-  const me = useMemo(
-    () => members.find((m) => m.uid === currentUid) ?? null,
-    [members, currentUid]
-  );
+  const me = useMemo(() => members.find((m) => m.uid === currentUid) ?? null, [members, currentUid]);
 
-  // lineup pt scenă
   const stageMembers: StageMember[] = useMemo(
-    () =>
-      members.map((m) => ({
-        uid: m.uid,
-        seat_index: m.seat_index,
-        display_name: m.display_name,
-        character_id: m.character_id,
-        is_ready: m.is_ready,
-      })),
+    () => members.map((m) => ({
+      uid: m.uid,
+      seat_index: m.seat_index,
+      display_name: m.display_name,
+      character_id: m.character_id,
+      is_ready: m.is_ready,
+    })),
     [members]
   );
 
-  // caractere deja luate
   const taken = useMemo(
     () => new Set(members.map((m) => m.character_id).filter(Boolean) as string[]),
     [members]
   );
 
-  // AUTO-ASSIGN: dacă eu nu am caracter, ia primul disponibil (o singură dată)
   const didAutoAssign = useRef(false);
   useEffect(() => {
     if (!room?.id || !currentUid) return;
     if (didAutoAssign.current) return;
-
     const meNow = members.find((m) => m.uid === currentUid);
     if (!meNow || meNow.character_id) return;
-
     const available = characters.filter((c) => !taken.has(c.id));
     if (available.length === 0) return;
-
     didAutoAssign.current = true;
     void updateCharacterGuarded(currentUid, available[0].id, null);
   }, [room?.id, currentUid, members, characters, taken, updateCharacterGuarded]);
@@ -83,6 +74,33 @@ export default function LobbyPage({ code }: { code: string }) {
     setBusyReady(false);
     if (err) console.error("toggleReady error:", err);
   }
+
+    useEffect(() => {
+    if (!room || !currentUid) return;
+
+    // host curent (permit null în caz că tabela are host_uid null când rămâne camera goală)
+    const hostUidNow: string | null = (room as unknown as { host_uid: string | null }).host_uid ?? null;
+
+    // la prima rulare doar memorăm, nu afișăm banner
+    if (!initHostRef.current) {
+      initHostRef.current = true;
+      prevHostUidRef.current = hostUidNow;
+      return;
+    }
+
+    // s-a schimbat host-ul?
+    if (hostUidNow !== prevHostUidRef.current) {
+      // dacă eu sunt noul host → arată mesaj
+      if (hostUidNow && hostUidNow === currentUid) {
+        setHostNotice("You're now the host.");
+        // auto-dismiss după 4s
+        const t = setTimeout(() => setHostNotice(null), 4000);
+        return () => clearTimeout(t);
+      }
+      // actualizează referința indiferent dacă sunt sau nu host
+      prevHostUidRef.current = hostUidNow;
+    }
+  }, [room, currentUid]);
 
   if (loading) return <div className="p-6">Loading lobby…</div>;
   if (error) return <div className="p-6 text-red-500">{error}</div>;
@@ -98,7 +116,7 @@ export default function LobbyPage({ code }: { code: string }) {
         members={members}
         incoming={swap.incoming}
         outgoingToUid={swap.outgoingToUid}
-        notice={swap.notice}
+        notice={swap.notice ?? hostNotice}
         error={swap.error}
         busyAccept={swap.busyAccept}
         onAccept={swap.acceptSwap}
