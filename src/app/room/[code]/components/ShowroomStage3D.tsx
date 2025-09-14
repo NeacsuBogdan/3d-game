@@ -1,4 +1,4 @@
-﻿"use client";
+﻿﻿"use client";
 
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
@@ -12,7 +12,68 @@ type Props = {
 };
 
 const cap = (s: string) => s.slice(0, 1).toUpperCase() + s.slice(1).toLowerCase();
-const basePathFor = (charId: string) => `/models/${cap(charId)}/base.fbx`;
+
+// --- helpers: căi, bbox, normalizare ---
+
+function measureWorldBounds(root: THREE.Object3D) {
+  root.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(root);
+  if (!isFinite(box.min.y) || !isFinite(box.max.y) || box.min.equals(box.max)) {
+    // fallback dacă FBX-ul are bbox zero
+    box.set(new THREE.Vector3(-0.3, 0, -0.3), new THREE.Vector3(0.3, 1.7, 0.3));
+  }
+  return box;
+}
+
+function fitToHeightAndFloor(model: THREE.Object3D, targetHeight = 1.72) {
+  let box = measureWorldBounds(model);
+  const rawH = Math.max(0.001, box.max.y - box.min.y);
+  const s = targetHeight / rawH;
+  model.scale.setScalar(s);
+  box = measureWorldBounds(model);
+  const dy = -box.min.y; // adu minimul pe podea
+  model.position.y += dy;
+
+  const rx = Math.max(Math.abs(box.min.x), Math.abs(box.max.x));
+  const rz = Math.max(Math.abs(box.min.z), Math.abs(box.max.z));
+  return { height: targetHeight, radius: Math.max(rx, rz) };
+}
+
+// Heuristic post-proc pentru materiale FBX (texturi, alpha, double-sided la păr/haine)
+function fixMaterials(root: THREE.Object3D) {
+  root.traverse((obj) => {
+    const mesh = obj as unknown as THREE.Mesh;
+    if (!mesh.isMesh) return;
+
+    const materials = Array.isArray(mesh.material)
+      ? mesh.material
+      : (mesh.material ? [mesh.material] : []);
+
+    materials.forEach((mat) => {
+      const m = mat as THREE.MeshStandardMaterial | THREE.MeshPhongMaterial;
+      // Color space corect pe hărți de culoare/emisive
+      if (m.map) m.map.colorSpace = THREE.SRGBColorSpace;
+      if (m.emissiveMap) m.emissiveMap.colorSpace = THREE.SRGBColorSpace;
+
+      // Alpha maps / transparență: evită “dispariții” de păr/haine
+      const name = (m.name || mesh.name || "").toLowerCase();
+      const looksLikeHairOrCloth = /hair|lash|cloth|skirt|dress|fabric|veil/i.test(name);
+      if (m.alphaMap || m.transparent || looksLikeHairOrCloth) {
+        m.transparent = true;
+        if (m.alphaTest === 0) m.alphaTest = 0.4; // tăiere hard a “griului”
+        // pentru plane subțiri vrem ambele fețe
+        if (looksLikeHairOrCloth) m.side = THREE.DoubleSide;
+      } else {
+        m.side = THREE.FrontSide;
+      }
+
+      // Asigură scrierea în depth (evită ciudățenii de sortare)
+      if (typeof m.depthWrite === "boolean") m.depthWrite = true;
+
+      // Dacă vine ca Phong, e ok; nu convertim agresiv la Standard.
+    });
+  });
+}
 
 export default function ShowroomStage3D({ members, currentUid, onClickMember }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -39,17 +100,14 @@ export default function ShowroomStage3D({ members, currentUid, onClickMember }: 
     new Map<string, Promise<{ proto: THREE.Object3D; clips: THREE.AnimationClip[] }>>()
   );
 
-  // temp objects pt calcule (evităm GC)
-  const tmpBox = useRef(new THREE.Box3());
   const tmpV = useRef(new THREE.Vector3());
 
-  // păstrăm handlerul de click fără să reinițializăm scena
   const onClickMemberRef = useRef(onClickMember);
   useEffect(() => {
     onClickMemberRef.current = onClickMember;
   }, [onClickMember]);
 
-  // === INIT SCENĂ (o singură dată) ===
+  // === INIT SCENĂ ===
   useEffect(() => {
     const container = containerRef.current;
     const canvas = canvasRef.current;
@@ -67,12 +125,15 @@ export default function ShowroomStage3D({ members, currentUid, onClickMember }: 
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(w, h, false);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.0;
 
     // lights
-    const ambient = new THREE.AmbientLight(0xffffff, 0.65);
-    const key = new THREE.DirectionalLight(0xffffff, 1.0);
-    key.position.set(2.8, 6.2, 3.8);
-    const rim = new THREE.DirectionalLight(0x88bbff, 0.45);
+    const ambient = new THREE.AmbientLight(0xffffff, 0.7);
+    const key = new THREE.DirectionalLight(0xffffff, 1.05);
+    key.position.set(3.2, 6.2, 4.0);
+    const rim = new THREE.DirectionalLight(0x88bbff, 0.5);
     rim.position.set(-3.2, 4.5, -2.2);
     scene.add(ambient, key, rim);
 
@@ -87,11 +148,6 @@ export default function ShowroomStage3D({ members, currentUid, onClickMember }: 
     sceneRef.current = scene;
     cameraRef.current = camera;
     rendererRef.current = renderer;
-
-    // copii locale pt cleanup (evităm deps pe .current în cleanup)
-    const nodesForCleanup = nodesRef.current;
-    const labelsForCleanup = labelsRef.current;
-    const mixersForCleanup = mixersRef.current;
 
     const renderNow = () => {
       if (sceneRef.current && cameraRef.current && rendererRef.current) {
@@ -113,7 +169,7 @@ export default function ShowroomStage3D({ members, currentUid, onClickMember }: 
     ro.observe(container);
     window.addEventListener("resize", onResize);
 
-    // pointer pick
+    // pointer pick (model + collider capsulă)
     const onPointer = (e: PointerEvent) => {
       const r = rendererRef.current, cam = cameraRef.current;
       if (!r || !cam) return;
@@ -134,6 +190,7 @@ export default function ShowroomStage3D({ members, currentUid, onClickMember }: 
 
     let raf = 0;
     const animate = () => {
+      // mic orbit “cinematic”
       const cam = cameraRef.current;
       if (cam) {
         const t = performance.now() * 0.00008;
@@ -142,31 +199,21 @@ export default function ShowroomStage3D({ members, currentUid, onClickMember }: 
         cam.lookAt(0, 1.7, 0);
       }
 
-      // animații
       const dt = clockRef.current.getDelta();
       mixersRef.current.forEach((m) => m.update(dt));
 
-      // labels deasupra capului (folosind bounding box world)
+      // labels via anchor dedicat
       const rend = rendererRef.current;
       if (cam && rend && overlayRef.current) {
         labelsRef.current.forEach((label, uid) => {
           const root = nodesRef.current.get(uid);
           if (!root) return;
-          const charNode = root.getObjectByName("char-root");
-          if (!charNode) return;
-
-          const box = tmpBox.current;
-          box.setFromObject(charNode);
-          // top-center world point
-          const xw = (box.min.x + box.max.x) * 0.5;
-          const yw = box.max.y;
-          const zw = (box.min.z + box.max.z) * 0.5;
-
-          const v = tmpV.current.set(xw, yw, zw);
+          const anchor = root.getObjectByName("label-anchor");
+          if (!anchor) return;
+          const v = tmpV.current.setFromMatrixPosition(anchor.matrixWorld);
           v.project(cam);
-
           const x = (v.x * 0.5 + 0.5) * rend.domElement.clientWidth;
-          const y = (-v.y * 0.5 + 0.5) * rend.domElement.clientHeight - 8; // mic spațiu deasupra capului
+          const y = (-v.y * 0.5 + 0.5) * rend.domElement.clientHeight;
           label.style.transform = `translate(-50%, -100%) translate(${x}px, ${y}px)`;
           label.style.opacity = v.z < 1 ? "1" : "0";
         });
@@ -185,13 +232,13 @@ export default function ShowroomStage3D({ members, currentUid, onClickMember }: 
       window.removeEventListener("resize", onResize);
       renderer.domElement.removeEventListener("pointerdown", onPointer);
 
-      mixersForCleanup.forEach((m) => m.stopAllAction());
-      mixersForCleanup.clear();
+      mixersRef.current.forEach((m) => m.stopAllAction());
+      mixersRef.current.clear();
 
-      nodesForCleanup.forEach((n) => scene.remove(n));
-      nodesForCleanup.clear();
-      labelsForCleanup.forEach((el) => el.remove());
-      labelsForCleanup.clear();
+      nodesRef.current.forEach((n) => scene.remove(n));
+      nodesRef.current.clear();
+      labelsRef.current.forEach((el) => el.remove());
+      labelsRef.current.clear();
 
       renderer.dispose();
       (scene as unknown as { dispose?: () => void }).dispose?.();
@@ -201,7 +248,7 @@ export default function ShowroomStage3D({ members, currentUid, onClickMember }: 
     };
   }, []);
 
-  // încarcă o singură dată modelul + clipurile din base.fbx și îl servește ca prototip
+  // loader + cache (cu resourcePath per model, important pentru texturi relative)
   const getModelProto = async (
     charId: string
   ): Promise<{ proto: THREE.Object3D; clips: THREE.AnimationClip[] }> => {
@@ -209,25 +256,25 @@ export default function ShowroomStage3D({ members, currentUid, onClickMember }: 
     const cached = cache.get(charId);
     if (cached) return cached;
 
+    const dir = `/models/${cap(charId)}/`;
     const loader = new FBXLoader();
-    const promise = loader.loadAsync(basePathFor(charId)).then((base) => {
-      // dacă base.fbx conține animații, le folosim (clipul 0 ca idle)
+    loader.setPath(dir);                // caută relative față de folder
+    loader.setResourcePath(dir);        // texturi relative din FBX
+    const promise = loader.loadAsync(`base.fbx`).then((base) => {
       const clips = (base as unknown as { animations?: THREE.AnimationClip[] }).animations ?? [];
-      base.scale.setScalar(0.013); // puțin mai mare
-      base.position.y = 0.0;
       return { proto: base, clips };
     });
     cache.set(charId, promise);
     return promise;
   };
 
-  // reconcile pe schimbări de members/currentUid (NU reinițializează scena)
+  // reconcile pe changes
   useEffect(() => {
     const scene = sceneRef.current;
     const overlay = overlayRef.current;
     if (!scene || !overlay) return;
 
-    // ordine: eu în centru, ceilalți alternant dreapta/stânga
+    // ordonare: eu centru, restul alternant
     const order = [...members].sort((a, b) => a.seat_index - b.seat_index);
     const meIndex = order.findIndex((m) => m.uid === currentUid);
     const meFirst = meIndex >= 0 ? [order[meIndex], ...order.filter((_, i) => i !== meIndex)] : order;
@@ -265,18 +312,30 @@ export default function ShowroomStage3D({ members, currentUid, onClickMember }: 
         );
         disk.rotation.x = -Math.PI / 2;
         disk.position.y = 0.01;
+        disk.name = "select-disk";
         root.add(disk);
+
+        const labelAnchor = new THREE.Object3D();
+        labelAnchor.name = "label-anchor";
+        labelAnchor.position.set(0, 1.8, 0);
+        root.add(labelAnchor);
+
+        const collider = new THREE.Mesh(
+          new THREE.CapsuleGeometry(0.35, 1.0, 8, 16),
+          new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.001, depthWrite: false })
+        );
+        collider.name = "hit-collider";
+        collider.position.y = 0.9;
+        root.add(collider);
 
         scene.add(root);
         nodesRef.current.set(uid, root);
       }
 
-      // transform
       root.position.set(pos.x, root.position.y, pos.z);
       root.scale.setScalar(pos.scale);
       root.lookAt(0, 1.7, 10);
 
-      // label (update doar dacă s-a schimbat textul)
       const labelText = `${m.display_name}${m.is_ready ? " ✅" : ""}`;
       let label = labelsRef.current.get(uid);
       if (!label) {
@@ -290,25 +349,19 @@ export default function ShowroomStage3D({ members, currentUid, onClickMember }: 
         label.textContent = labelText;
       }
 
-      // character
       const prevCharId = charIdByUidRef.current.get(uid) ?? null;
       const nextCharId = m.character_id ?? null;
-
-      // dacă nu s-a schimbat charId, nu atinge modelul (ready/unready nu atinge char-root)
       if (prevCharId === nextCharId) return;
 
-      // oprește mixerul anterior (dacă era)
       const oldMixer = mixersRef.current.get(uid);
       if (oldMixer) {
         oldMixer.stopAllAction();
         mixersRef.current.delete(uid);
       }
 
-      // versiune nouă pentru încărcare (ca să anulăm rezultatele stale)
       const token = (loadTokenRef.current.get(uid) ?? 0) + 1;
       loadTokenRef.current.set(uid, token);
 
-      // dacă devine null → pune placeholder imediat
       if (!nextCharId) {
         const prevNode = root.getObjectByName("char-root");
         if (prevNode) root.remove(prevNode);
@@ -323,21 +376,48 @@ export default function ShowroomStage3D({ members, currentUid, onClickMember }: 
         phRoot.add(ph);
         root.add(phRoot);
 
+        const anchor = root.getObjectByName("label-anchor");
+        if (anchor) (anchor as THREE.Object3D).position.y = 1.8;
+        const coll = root.getObjectByName("hit-collider") as THREE.Mesh | null;
+        if (coll) {
+          coll.geometry.dispose();
+          coll.geometry = new THREE.CapsuleGeometry(0.35, 1.0, 8, 16);
+          coll.position.y = 0.9;
+        }
+
         charIdByUidRef.current.set(uid, null);
         return;
       }
 
-      // altfel: păstrăm vechiul model până e pregătit cel nou
       try {
         const { proto, clips } = await getModelProto(nextCharId);
-        if (loadTokenRef.current.get(uid) !== token) return; // s-a schimbat între timp
+        if (loadTokenRef.current.get(uid) !== token) return;
 
         const newRoot = new THREE.Group();
         newRoot.name = "char-root";
         const clone = SkeletonUtils.clone(proto) as THREE.Object3D;
+
+        // **material fix** înainte de orice
+        fixMaterials(clone);
+
         newRoot.add(clone);
 
-        // dacă există clipuri în base.fbx, redăm primul ca idle
+        // normalizează înălțimea și așează pe podea
+        const { height, radius } = fitToHeightAndFloor(clone, 1.72);
+
+        // actualizează label anchor exact deasupra capului
+        const anchor = root.getObjectByName("label-anchor");
+        if (anchor) (anchor as THREE.Object3D).position.y = height + 0.12;
+
+        // collider invizibil adaptat modelului
+        const coll = root.getObjectByName("hit-collider") as THREE.Mesh | null;
+        if (coll) {
+          coll.geometry.dispose();
+          coll.geometry = new THREE.CapsuleGeometry(Math.max(0.3, radius * 0.7), Math.max(0.8, height * 0.6), 8, 16);
+          coll.position.y = Math.max(0.7, height * 0.5);
+        }
+
+        // animație idle dacă există
         if (clips.length > 0) {
           const mixer = new THREE.AnimationMixer(clone);
           const action = mixer.clipAction(clips[0]);
@@ -351,7 +431,6 @@ export default function ShowroomStage3D({ members, currentUid, onClickMember }: 
 
         charIdByUidRef.current.set(uid, nextCharId);
       } catch {
-        // nu reușim să încărcăm: păstrăm ce e pe ecran; dacă nu e nimic, punem placeholder
         const hasExisting = !!root.getObjectByName("char-root");
         if (!hasExisting) {
           const phRoot = new THREE.Group();
@@ -364,17 +443,12 @@ export default function ShowroomStage3D({ members, currentUid, onClickMember }: 
           phRoot.add(ph);
           root.add(phRoot);
         }
-        // nu actualizăm charIdByUidRef (schimbarea nu a reușit)
       }
     };
 
-    // aplicăm la toți membrii
     const uids = members.map((m) => m.uid);
-    uids.forEach((uid) => {
-      void ensureMember(uid);
-    });
+    uids.forEach((uid) => void ensureMember(uid));
 
-    // cleanup pentru membrii ieșiți
     nodesRef.current.forEach((node, uid) => {
       if (!uids.includes(uid)) {
         const mix = mixersRef.current.get(uid);

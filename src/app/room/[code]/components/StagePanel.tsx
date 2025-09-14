@@ -1,4 +1,4 @@
-﻿"use client";
+﻿﻿"use client";
 
 import ShowroomStage3D from "./ShowroomStage3D";
 import type { StageMember } from "../_shared/types";

@@ -37,6 +37,9 @@ export async function loadCharacter(scene: Scene, id: string): Promise<LoadedCha
   const loader = new FBXLoader();
 
   const base = (await loader.loadAsync(`${basePath}/base.fbx`)) as FBXGroup;
+  // Asigură-te că avem animations pe root
+  base.animations = (base.animations ?? []).map((c) => c.clone());
+
   const model: Object3D = base;
   scene.add(model);
 
@@ -66,8 +69,9 @@ export async function loadCharacter(scene: Scene, id: string): Promise<LoadedCha
       const fbx = (await loader.loadAsync(path)) as FBXGroup;
       const clip = fbx.animations?.[0];
       if (clip) {
-        clip.name = key;
-        clips[key] = clip;
+        const c = clip.clone();
+        c.name = key;
+        clips[key] = c;
       }
     })
   );
@@ -131,18 +135,18 @@ export async function loadCharacter(scene: Scene, id: string): Promise<LoadedCha
   };
 
   const sitDown = (fadeSeconds = 0.25) => {
-    // Play one-shot “sit” and switch base to sit_idle afterwards.
+    // Play one-shot “sit” și trecem pe sit_idle
     fadeToOnce('sit', fadeSeconds, 'sit_idle');
     baseMode = 'sit_idle';
   };
 
   const standUp = (fadeSeconds = 0.25) => {
-    // Play one-shot “stand_up” and switch base to idle afterwards.
+    // Play one-shot “stand_up” și trecem pe idle
     fadeToOnce('stand_up', fadeSeconds, 'idle');
     baseMode = 'idle';
   };
 
-  // start with idle if available
+  // start with idle dacă există
   if (clips['idle']) playBase('idle', 0.3);
 
   return { model, mixer, clips, fadeToLoop, fadeToOnce, setBaseMode, sitDown, standUp };

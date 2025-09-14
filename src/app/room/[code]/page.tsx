@@ -1,4 +1,4 @@
-﻿import LobbyPage from "./LobbyPage";
+﻿﻿import LobbyPage from "./LobbyPage";
 
 export default async function RoomPage({
   params,
